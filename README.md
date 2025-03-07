@@ -1,7 +1,7 @@
 # SPH6004_assignment1
 1. Data pre-processing  
 Code: Data_cleaning.R  
-Note: Train/test split was implemented in Model_implementation_1.ipynb  
+Note: kNN was implemented here but Train/test split was implemented in Model_implementation_1.ipynb  
 Packages used: VIM, corrplot  
 2. Multinomial logistic regression  
 Code: Model_implementation_1.ipynb  
