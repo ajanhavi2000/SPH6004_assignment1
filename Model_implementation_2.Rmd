@@ -1,0 +1,183 @@
+---
+title: "Ordinal Forest"
+author: "janhavi"
+date: "2025-03-04"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE)
+library(ordinalForest)
+library(verification)
+```
+
+Import train and test splits that were created in python --> keeping it consistent
+
+```{r}
+X_train <- read.csv("Train-test/X_train.csv")
+X_test <- read.csv("Train-test/X_test.csv")
+y_train <- read.csv("Train-test/y_train.csv")
+y_test <- read.csv("Train-test/y_test.csv")
+```
+
+Change one-hot encoded variables back to nominal variables --> R natively handles factors so this is needed so that i can keep it simple and reduce dimension of the feature set before performing GA
+
+```{r}
+colnames(X_train)[65:73]
+```
+
+
+```{r}
+
+undo_one_hot_encoding_race <- function(df){
+  asian <- df$race_ASIAN
+  white <- df$race_WHITE
+  native <- df$race_NATIVE
+  black <- df$race_BLACK
+  hispanic <- df$race_HISPANIC
+  unknown <- df$race_UNKNOWN
+  other <- df$race_OTHER
+  
+  all_race <- character(length = nrow(df))
+  all_race[which(asian == "True")] <- "ASIAN"
+  all_race[which(white == "True")] <- "WHITE"
+  all_race[which(native == "True")] <- "NATIVE"
+  all_race[which(black == "True")] <- "BLACK"
+  all_race[which(hispanic == "True")] <- "HISPANIC"
+  all_race[which(unknown == "True")] <- "UNKNOWN"
+  all_race[which(other == "True")] <- "OTHER"
+  
+  df$race <- all_race
+  
+  gender <- df$gender_F
+  all_gender <- character(length = nrow(df))
+  all_gender[which(gender == "True")] <- "F"
+  all_gender[which(gender == "False")] <- "M"
+  
+  df$gender <- all_gender
+  
+  df <- df[,-c(65:73)]
+  
+  return(df)
+}
+
+X_train <- undo_one_hot_encoding_race(X_train)
+X_test <- undo_one_hot_encoding_race(X_test)
+```
+
+keep indexes of train-test split separately, clean data for model, combine X and Y of train and split into train and test dataframes
+```{r}
+train_index <- X_train$X
+test_index <- X_test$X
+
+X_train <- X_train[,-1]
+X_test <- X_test[,-1]
+y_train <- y_train[,-1]
+y_test <- y_test[,-1]
+X_train$aki_stage <- y_train
+X_test$aki_stage <- y_test
+
+train_df <- X_train
+test_df <- X_test
+
+```
+
+```{r, echo = F}
+rm(X_test, X_train, y_train, y_test, undo_one_hot_encoding_race)
+```
+
+set race and gender as factors, aki_stage as ordered variable
+```{r}
+train_df$race <- as.factor(train_df$race)
+train_df$gender <- as.factor(train_df$gender)
+
+test_df$race <- as.factor(test_df$race)
+test_df$gender <- as.factor(test_df$gender)
+
+train_df$aki_stage <- as.ordered(train_df$aki_stage)
+test_df$aki_stage <- as.ordered(test_df$aki_stage)
+
+levels(train_df$race)
+levels(train_df$gender)
+
+levels(test_df$race)
+levels(test_df$gender)
+
+levels(train_df$aki_stage)
+levels(test_df$aki_stage)
+```
+try ordinal forest just to see
+```{r}
+ordforres <- ordfor(depvar = "aki_stage", data = train_df, perffunction = "probability")
+preds <- predict(ordforres, newdata = test_df)
+pred_probs <- preds$classprobs
+```
+Calculate RPS 
+
+```{r}
+obs_numeric <- as.numeric(test_df$aki_stage)
+fold_rps <- rps(obs = obs_numeric, pred = pred_probs)
+fold_rps$rps
+```
+
+Calculate accuracy
+```{r}
+predicted_y <- as.numeric(preds$ypred)
+accuracy <- sum(predicted_y == obs_numeric)/length(obs_numeric)
+print(paste0("Accuracy: ", round(accuracy,5)))
+
+```
+
+
+Calculate precision, recall, f1 metrics to compare with the other models
+- load packages then calculate
+
+
+```{r setup2, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE)
+library(caret)
+library(MLmetrics)
+```
+
+```{r}
+#first we need to compute confusion matrix
+predicted_y <- as.factor(predicted_y)
+actual_y <- as.factor(obs_numeric)
+conf_matrix <- confusionMatrix(predicted_y,actual_y)
+#get class wise metrics
+precision <- conf_matrix$byClass[, "Precision"]
+recall <- conf_matrix$byClass[, "Recall"]
+f1_score <- conf_matrix$byClass[, "F1"]
+#get macro emtrics
+macro_precision <- round(mean(precision),2)
+macro_recall <- round(mean(recall),2)
+macro_f1 <- round(mean(f1_score),2)
+#getweighted metrics
+support <- table(actual_y)  # Number of instances per class
+total_samples <- sum(support)
+
+weighted_precision <- round(sum(precision * support / total_samples),2)
+weighted_recall <- round(sum(recall * support / total_samples),2)
+weighted_f1 <- round(sum(f1_score * support / total_samples),2)
+```
+
+```{r}
+print("Class specific metrics:")
+print("Precision:")
+print(round(precision,2))
+print("Recall:")
+print(round(recall,2))
+print("F1:")
+print(round(f1_score,2))
+
+print("Macro metrics:")
+print(paste0("Precision:", macro_precision))
+print(paste0("Recall:", macro_recall))
+print(paste0("F1:", macro_f1))
+
+print("Weighted metrics:")
+print(paste0("Precision:", weighted_precision))
+print(paste0("Recall:", weighted_recall))
+print(paste0("F1:", weighted_f1))
+
+```
